@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/collections_providers.dart';
 
@@ -16,7 +17,28 @@ class CollectionDetailsScreen extends ConsumerWidget {
     final groups = ref.watch(groupsForCollectionProvider(collectionId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(collection?.title ?? 'Collection')),
+      appBar: AppBar(
+        title: Text(collection?.title ?? 'Collection'),
+        actions: [
+          IconButton(
+            onPressed: () => context.go('/quiz/$collectionId'),
+            icon: const Icon(Icons.quiz),
+          ),
+          IconButton(
+            onPressed: () => _showEditCollectionSheet(context, ref, collection?.title ?? '', collection?.description ?? ''),
+            icon: const Icon(Icons.edit),
+          ),
+          IconButton(
+            onPressed: () async {
+              await ref.read(collectionsRepositoryProvider).deleteCollection(collectionId);
+              ref.invalidate(collectionsProvider);
+              ref.invalidate(userStatsProvider);
+              if (context.mounted) context.go('/collections');
+            },
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddCardSheet(context, ref),
         child: const Icon(Icons.add),
@@ -35,7 +57,25 @@ class CollectionDetailsScreen extends ConsumerWidget {
               child: ListTile(
                 title: Text(card.question),
                 subtitle: Text(card.answer),
-                trailing: Text('${(card.masteryLevel * 100).round()}%'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${(card.masteryLevel * 100).round()}%'),
+                    IconButton(
+                      onPressed: () => _showEditCardSheet(context, ref, card.id, card.question, card.answer, card.note ?? ''),
+                      icon: const Icon(Icons.edit, size: 20),
+                    ),
+                    IconButton(
+                      onPressed: () async {
+                        await ref.read(collectionsRepositoryProvider).deleteCard(card.id);
+                        ref.invalidate(cardsForCollectionProvider(collectionId));
+                        ref.invalidate(weakCardsProvider(collectionId));
+                        ref.invalidate(userStatsProvider);
+                      },
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -99,8 +139,8 @@ class CollectionDetailsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () {
-                  ref.read(collectionsRepositoryProvider).addCard(
+                onPressed: () async {
+                  await ref.read(collectionsRepositoryProvider).addCard(
                         collectionId: collectionId,
                         question: questionController.text.trim(),
                         answer: answerController.text.trim(),
@@ -109,9 +149,124 @@ class CollectionDetailsScreen extends ConsumerWidget {
                   ref.invalidate(cardsForCollectionProvider(collectionId));
                   ref.invalidate(weakCardsProvider(collectionId));
                   ref.invalidate(userStatsProvider);
-                  Navigator.of(context).pop();
+                  if (context.mounted) Navigator.of(context).pop();
                 },
                 child: const Text('Add card'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showEditCollectionSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String currentTitle,
+    String currentDescription,
+  ) async {
+    final titleController = TextEditingController(text: currentTitle);
+    final descriptionController = TextEditingController(text: currentDescription);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(labelText: 'Collection title'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () async {
+                  await ref.read(collectionsRepositoryProvider).updateCollection(
+                        collectionId: collectionId,
+                        title: titleController.text.trim(),
+                        description: descriptionController.text.trim(),
+                      );
+                  ref.invalidate(collectionProvider(collectionId));
+                  ref.invalidate(collectionsProvider);
+                  if (context.mounted) Navigator.of(context).pop();
+                },
+                child: const Text('Save changes'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showEditCardSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String cardId,
+    String currentQuestion,
+    String currentAnswer,
+    String currentNote,
+  ) async {
+    final questionController = TextEditingController(text: currentQuestion);
+    final answerController = TextEditingController(text: currentAnswer);
+    final noteController = TextEditingController(text: currentNote);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: questionController,
+                decoration: const InputDecoration(labelText: 'Question'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: answerController,
+                decoration: const InputDecoration(labelText: 'Answer'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteController,
+                decoration: const InputDecoration(labelText: 'Note'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () async {
+                  await ref.read(collectionsRepositoryProvider).updateCard(
+                        cardId: cardId,
+                        question: questionController.text.trim(),
+                        answer: answerController.text.trim(),
+                        note: noteController.text.trim(),
+                      );
+                  ref.invalidate(cardsForCollectionProvider(collectionId));
+                  ref.invalidate(weakCardsProvider(collectionId));
+                  if (context.mounted) Navigator.of(context).pop();
+                },
+                child: const Text('Save card'),
               ),
             ],
           ),

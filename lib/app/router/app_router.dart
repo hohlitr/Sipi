@@ -5,6 +5,7 @@ import '../../features/collections/presentation/collections_screen.dart';
 import '../../features/collections/presentation/collection_details_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/progress/presentation/progress_screen.dart';
+import '../../features/quiz/presentation/quiz_screen.dart';
 
 class AppRouter {
   static final router = GoRouter(
@@ -31,6 +32,12 @@ class AppRouter {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/quiz/:id',
+        builder: (context, state) => QuizScreen(
+          collectionId: state.pathParameters['id'] ?? '',
+        ),
       ),
     ],
   );

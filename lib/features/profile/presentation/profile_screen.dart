@@ -9,6 +9,8 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final stats = ref.watch(userStatsProvider);
+    final achievements = ref.watch(achievementsProvider);
+    final plans = ref.watch(studyPlansProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -19,12 +21,14 @@ class ProfileScreen extends ConsumerWidget {
           children: [
             const Text('Achievements'),
             const SizedBox(height: 12),
-            const Text('First collection created'),
-            const Text('Started learning streak'),
+            ...achievements.map((achievement) => Text('• ${achievement.title}')),
             const SizedBox(height: 20),
             const Text('Study plans'),
             const SizedBox(height: 12),
-            const Text('No plans yet'),
+            if (plans.isEmpty)
+              const Text('No plans yet')
+            else
+              ...plans.map((plan) => Text('• ${plan.collectionId}: ${(plan.targetProgress * 100).round()}% target')),
             const SizedBox(height: 20),
             const Text('Account summary'),
             const SizedBox(height: 12),

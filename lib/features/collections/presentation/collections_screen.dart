@@ -74,13 +74,14 @@ class CollectionsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () {
-                  ref.read(collectionsRepositoryProvider).addCollection(
+                onPressed: () async {
+                  await ref.read(collectionsRepositoryProvider).addCollection(
                         titleController.text.trim(),
                         descriptionController.text.trim(),
                       );
                   ref.invalidate(collectionsProvider);
-                  Navigator.of(context).pop();
+                  ref.invalidate(userStatsProvider);
+                  if (context.mounted) Navigator.of(context).pop();
                 },
                 child: const Text('Create collection'),
               ),
