@@ -1,60 +1,53 @@
 # Sipi
 
-Sipi is a mobile study app built around flashcards, testing, progress tracking, and light gamification.
+Sipi - Android-приложение для изучения и повторения материала с помощью карточек, тестирования, прогресса и легкой геймификации.
 
-This repository starts from the product wiki and contains the initial MVP foundation.
+## Текущий статус
 
-## MVP scope
+В репозитории добавлен native Android MVP, который открывается в Android Studio как обычный Gradle-проект.
 
-Based on the current wiki, the first version should support:
+Реализовано:
 
-- authentication flow;
-- collections CRUD;
-- cards CRUD;
-- notes on cards;
-- local card groups;
-- reading mode;
-- quiz mode with priority for least-learned cards;
-- progress and statistics;
-- achievements;
-- study plans;
-- export of collections without personal stats.
+- вход и создание демо-аккаунта;
+- локальное хранение данных в `SharedPreferences`;
+- демо-коллекция карточек;
+- создание коллекций;
+- добавление, редактирование и удаление карточек;
+- локальные группы карточек;
+- режим чтения карточек;
+- тест по карточкам с наименьшей изученностью;
+- сохранение статистики ответов;
+- общий прогресс и прогресс по коллекциям;
+- учебный план по коллекции;
+- достижения;
+- экспорт коллекции без персональной статистики.
 
-## Suggested stack
+## Запуск в Android Studio
 
-Current recommended stack for the first implementation:
+1. Открыть папку репозитория `Sipi` в Android Studio.
+2. Дождаться Gradle Sync.
+3. Выбрать конфигурацию `app`.
+4. Запустить приложение на эмуляторе или Android-устройстве.
 
-- Flutter
-- Riverpod
-- GoRouter
-- Drift or Hive/Isar for local storage
-- Supabase or Firebase Auth for authentication
+## Сборка из терминала
 
-## Project status
+```powershell
+.\gradlew.bat assembleDebug
+```
 
-This repo is at bootstrap stage.
+Готовый debug APK появляется здесь:
 
-Already added:
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
-- product-oriented project structure;
-- architecture draft;
-- domain models;
-- feature module placeholders;
-- implementation roadmap.
+## Техническая основа
 
-## Structure
+- Kotlin
+- Android Gradle Plugin
+- Android SDK 26+
+- Programmatic Android Views
+- `SharedPreferences`
+- `org.json`
 
-- `docs/` - architecture, roadmap, and product notes
-- `lib/app/` - app shell, routing, theme
-- `lib/core/` - shared utilities, constants, types
-- `lib/features/` - feature-first modules
-- `test/` - test placeholders
-
-## Next steps
-
-1. Confirm final mobile stack
-2. Initialize app dependencies
-3. Implement auth flow
-4. Implement collections and cards local storage
-5. Implement quiz session logic
-6. Add progress calculation and profile screens
+Flutter-файлы из раннего черновика репозитория пока сохранены, но основная рабочая реализация находится в модуле `app`.
