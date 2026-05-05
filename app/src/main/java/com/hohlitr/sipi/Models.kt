@@ -34,6 +34,8 @@ data class CardItem(
     val question: String,
     val answer: String,
     val note: String,
+    val wrongAnswers: List<String> = emptyList(),
+    val mistakeCount: Int = 0,
     val correctAnswers: Int = 0,
     val attempts: Int = 0,
     val mastery: Double = 0.0
@@ -44,6 +46,8 @@ data class CardItem(
         .put("question", question)
         .put("answer", answer)
         .put("note", note)
+        .put("wrongAnswers", JSONArray(wrongAnswers))
+        .put("mistakeCount", mistakeCount)
         .put("correctAnswers", correctAnswers)
         .put("attempts", attempts)
         .put("mastery", mastery)
@@ -55,6 +59,8 @@ data class CardItem(
             question = json.getString("question"),
             answer = json.getString("answer"),
             note = json.optString("note"),
+            wrongAnswers = json.optJSONArray("wrongAnswers")?.toStringList().orEmpty(),
+            mistakeCount = json.optInt("mistakeCount"),
             correctAnswers = json.optInt("correctAnswers"),
             attempts = json.optInt("attempts"),
             mastery = json.optDouble("mastery"),

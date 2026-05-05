@@ -22,6 +22,7 @@ import android.content.Context.MODE_PRIVATE
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -47,6 +48,13 @@ private enum class Screen {
     Profile,
 }
 
+private enum class AnswerState {
+    Pending,
+    Correct,
+    Wrong,
+    Disabled,
+}
+
 class MainActivity : Activity() {
     private lateinit var store: SipiStore
     private val collections get() = store.collections
@@ -63,6 +71,7 @@ class MainActivity : Activity() {
     private var quizIndex = 0
     private var quizNotesVisible = true
     private var quizSelectedAnswer: String? = null
+    private var quizMistakesOnly = false
     private var currentScreen = Screen.Login
     private var currentCollectionId: String? = null
 
@@ -138,13 +147,21 @@ class MainActivity : Activity() {
             collections.forEach { collection ->
                 val collectionCards = cardsFor(collection.id)
                 val progress = collectionProgress(collection.id)
+                val mistakeCards = mistakeCardsFor(collection.id).size
+                val mistakeTotal = collectionMistakes(collection.id)
                 root.addView(cardBlock {
                     addView(title(collection.title))
                     addView(text(collection.description.ifBlank { "Без описания" }, 14))
-                    addView(text("${collectionCards.size} карточек · прогресс ${percent(progress)}", 14))
+                    addView(text("${collectionCards.size} карточек · прогресс ${percent(progress)} · ошибок $mistakeTotal", 14))
                     addView(progress(progress))
+                    if (mistakeCards > 0) {
+                        addView(text("Повторить: $mistakeCards карточек с ошибками", 13))
+                    }
                     addView(horizontal {
                         addView(smallButton("Открыть") { showCollectionDetails(collection.id) })
+                        addView(smallButton("Ошибки") { startMistakesQuiz(collection.id) })
+                    })
+                    addView(horizontal {
                         addView(smallButton("Изменить") { showCollectionDialog(collection) })
                         addView(smallButton("Удалить") { confirmDeleteCollection(collection) })
                     })
@@ -164,22 +181,25 @@ class MainActivity : Activity() {
         root.addView(horizontal {
             addView(smallButton("Назад") { showCollections() })
             addView(smallButton("Тест") { startQuiz(collectionId) })
-            addView(smallButton("Экспорт") { showExport(collectionId) })
+            addView(smallButton("Повторить ошибки") { startMistakesQuiz(collectionId) })
         })
         root.addView(horizontal {
             addView(smallButton("Карточка") { showCardDialog(collectionId) })
             addView(smallButton("Группа") { showGroupDialog(collectionId) })
-            addView(smallButton("План") { showPlanDialog(collectionId) })
+            addView(smallButton("Экспорт") { showExport(collectionId) })
         })
         root.addView(horizontal {
+            addView(smallButton("План") { showPlanDialog(collectionId) })
             addView(smallButton("Изменить") { showCollectionDialog(collection) })
             addView(smallButton("Удалить") { confirmDeleteCollection(collection) })
         })
 
         val collectionCards = cardsFor(collectionId)
+        val mistakeCards = mistakeCardsFor(collectionId)
         root.addView(section("Прогресс"))
         root.addView(progress(collectionProgress(collectionId)))
         root.addView(text("Изученность: ${percent(collectionProgress(collectionId))}", 14))
+        root.addView(text("Карточек: ${collectionCards.size} · с ошибками: ${mistakeCards.size} · всего ошибок: ${collectionMistakes(collectionId)}", 14))
 
         root.addView(section("Карточки"))
         if (collectionCards.isEmpty()) {
@@ -189,8 +209,11 @@ class MainActivity : Activity() {
             root.addView(cardBlock {
                 addView(title(card.question))
                 addView(text(card.answer, 14))
+                if (card.wrongAnswers.isNotEmpty()) {
+                    addView(text("Неправильные варианты: ${card.wrongAnswers.joinToString("; ")}", 13))
+                }
                 if (card.note.isNotBlank()) addView(text("Заметка: ${card.note}", 13))
-                addView(text("Верно ${card.correctAnswers}/${card.attempts} · ${percent(card.mastery)}", 13))
+                addView(text("Верно ${card.correctAnswers}/${card.attempts} · ${percent(card.mastery)} · ошибок ${card.mistakeCount}", 13))
                 addView(horizontal {
                     addView(smallButton("Изменить") { showCardDialog(collectionId, card) })
                     addView(smallButton("Удалить") {
@@ -229,6 +252,21 @@ class MainActivity : Activity() {
         quizIndex = 0
         quizNotesVisible = true
         quizSelectedAnswer = null
+        quizMistakesOnly = false
+        showQuiz(collectionId)
+    }
+
+    private fun startMistakesQuiz(collectionId: String) {
+        currentCollectionId = collectionId
+        quizCards = mistakeCardsFor(collectionId).sortedByDescending { it.mistakeCount }.take(20)
+        if (quizCards.isEmpty()) {
+            toast("Ошибок пока нет")
+            return
+        }
+        quizIndex = 0
+        quizNotesVisible = true
+        quizSelectedAnswer = null
+        quizMistakesOnly = true
         showQuiz(collectionId)
     }
 
@@ -243,8 +281,11 @@ class MainActivity : Activity() {
         val card = quizCards[quizIndex]
         val selectedAnswer = quizSelectedAnswer
         val answerOptions = answerOptionsFor(card, collectionId)
-        val root = page("Тест", "Карточка ${quizIndex + 1} из ${quizCards.size}")
-        root.addView(text(card.question, 22))
+        val root = page(
+            if (quizMistakesOnly) "Повторение ошибок" else "Тест",
+            "Карточка ${quizIndex + 1} из ${quizCards.size}"
+        )
+        root.addView(questionBlock(card.question))
         root.addView(CheckBox(this).apply {
             text = "Показывать заметки"
             isChecked = quizNotesVisible
@@ -255,25 +296,32 @@ class MainActivity : Activity() {
         })
 
         root.addView(section("Варианты ответа"))
-        if (selectedAnswer == null) {
-            answerOptions.forEach { answer ->
-                root.addView(primaryButton(answer) {
-                    submitQuizAnswer(collectionId, card.id, answer)
-                })
+        answerOptions.forEach { answer ->
+            val state = when {
+                selectedAnswer == null -> AnswerState.Pending
+                answer == card.answer -> AnswerState.Correct
+                answer == selectedAnswer -> AnswerState.Wrong
+                else -> AnswerState.Disabled
             }
-        } else {
+            root.addView(answerButton(answer, state) {
+                if (selectedAnswer == null) {
+                    submitQuizAnswer(collectionId, card.id, answer)
+                }
+            })
+        }
+
+        if (selectedAnswer != null) {
             val correct = selectedAnswer == card.answer
-            root.addView(text(if (correct) "Верно" else "Неверно", 20, bold = true))
-            root.addView(text("Ваш ответ: $selectedAnswer", 16))
-            root.addView(text("Правильный ответ: ${card.answer}", 16))
+            root.addView(feedbackBlock(correct, selectedAnswer, card.answer))
             if (quizNotesVisible && card.note.isNotBlank()) {
                 root.addView(text("Заметка: ${card.note}", 14))
             }
             root.addView(primaryButton(if (quizIndex + 1 >= quizCards.size) "Завершить тест" else "Следующая карточка") {
                 moveToNextQuizCard(collectionId)
             })
+        } else {
+            root.addView(secondaryButton("Завершить тест") { showCollectionDetails(collectionId) })
         }
-        root.addView(secondaryButton("Завершить тест") { showCollectionDetails(collectionId) })
         setContentView(scroll(root))
     }
 
@@ -287,8 +335,13 @@ class MainActivity : Activity() {
             cards[index] = current.copy(
                 attempts = attempts,
                 correctAnswers = correctAnswers,
+                mistakeCount = if (correct) 0 else current.mistakeCount + 1,
                 mastery = correctAnswers.toDouble() / attempts.toDouble()
             )
+            val quizCardIndex = quizCards.indexOfFirst { it.id == cardId }
+            if (quizCardIndex >= 0) {
+                quizCards = quizCards.toMutableList().apply { set(quizCardIndex, cards[index]) }
+            }
             saveData()
         }
         quizSelectedAnswer = selectedAnswer
@@ -307,11 +360,9 @@ class MainActivity : Activity() {
     }
 
     private fun answerOptionsFor(card: CardItem, collectionId: String): List<String> {
-        val wrongAnswers = cardsFor(collectionId)
+        val wrongAnswers = card.wrongAnswers
             .asSequence()
-            .filterNot { it.id == card.id }
-            .map { it.answer }
-            .plus(cards.asSequence().filterNot { it.id == card.id }.map { it.answer })
+            .plus(cardsFor(collectionId).asSequence().filterNot { it.id == card.id }.map { it.answer })
             .filter { it.isNotBlank() && it != card.answer }
             .distinct()
             .take(3)
@@ -430,11 +481,15 @@ class MainActivity : Activity() {
 
     private fun showCardDialog(collectionId: String, existing: CardItem? = null) {
         val question = input("Вопрос", existing?.question ?: "")
-        val answer = input("Ответ", existing?.answer ?: "")
+        val answer = input("Правильный ответ", existing?.answer ?: "")
+        val wrongAnswerInputs = List(3) { index ->
+            input("Неправильный ответ ${index + 1}", existing?.wrongAnswers?.getOrNull(index) ?: "")
+        }
         val note = input("Заметка", existing?.note ?: "")
         val form = vertical {
             addView(question)
             addView(answer)
+            wrongAnswerInputs.forEach(::addView)
             addView(note)
         }
         AlertDialog.Builder(this)
@@ -445,14 +500,24 @@ class MainActivity : Activity() {
                     toast("Вопрос и ответ обязательны")
                     return@setPositiveButton
                 }
+                val correctAnswer = answer.text.toString().trim()
+                val wrongAnswers = wrongAnswerInputs
+                    .map { it.text.toString().trim() }
+                    .filter { it.isNotBlank() && it != correctAnswer }
+                    .distinct()
+                if (wrongAnswers.size < 3) {
+                    toast("Введите 3 разных неправильных ответа")
+                    return@setPositiveButton
+                }
                 if (existing == null) {
                     cards.add(
                         CardItem(
                             id = id(),
                             collectionId = collectionId,
                             question = question.text.toString().trim(),
-                            answer = answer.text.toString().trim(),
-                            note = note.text.toString().trim()
+                            answer = correctAnswer,
+                            note = note.text.toString().trim(),
+                            wrongAnswers = wrongAnswers,
                         )
                     )
                 } else {
@@ -460,8 +525,9 @@ class MainActivity : Activity() {
                     if (index >= 0) {
                         cards[index] = existing.copy(
                             question = question.text.toString().trim(),
-                            answer = answer.text.toString().trim(),
-                            note = note.text.toString().trim()
+                            answer = correctAnswer,
+                            note = note.text.toString().trim(),
+                            wrongAnswers = wrongAnswers,
                         )
                     }
                 }
@@ -552,8 +618,12 @@ class MainActivity : Activity() {
             .put("collection", JSONObject().put("title", collection.title).put("description", collection.description))
             .put(
                 "cards",
-                JSONArray(cardsFor(collectionId).map {
-                    JSONObject().put("question", it.question).put("answer", it.answer).put("note", it.note)
+            JSONArray(cardsFor(collectionId).map {
+                    JSONObject()
+                        .put("question", it.question)
+                        .put("answer", it.answer)
+                        .put("wrongAnswers", JSONArray(it.wrongAnswers))
+                        .put("note", it.note)
                 })
             )
             .put(
@@ -617,6 +687,10 @@ class MainActivity : Activity() {
         return if (items.isEmpty()) 0.0 else items.sumOf { it.mastery } / items.size
     }
 
+    private fun mistakeCardsFor(collectionId: String) = cardsFor(collectionId).filter { it.mistakeCount > 0 }
+
+    private fun collectionMistakes(collectionId: String) = cardsFor(collectionId).sumOf { it.mistakeCount }
+
     private fun page(title: String, subtitle: String): LinearLayout = vertical {
         setPadding(dp(20), dp(18), dp(20), dp(28))
         addView(text(title, 28, bold = true))
@@ -631,12 +705,32 @@ class MainActivity : Activity() {
     }
 
     private fun cardBlock(content: LinearLayout.() -> Unit): LinearLayout = vertical {
-        setPadding(dp(14), dp(12), dp(14), dp(12))
-        setBackgroundColor(Color.rgb(247, 248, 250))
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+        setBackgroundColor(Color.rgb(246, 248, 252))
         content()
         addView(space(8))
     }.also {
-        it.layoutParams = LinearLayout.LayoutParams(match, wrap).apply { setMargins(0, dp(8), 0, dp(8)) }
+        it.layoutParams = LinearLayout.LayoutParams(match, wrap).apply { setMargins(0, dp(10), 0, dp(10)) }
+    }
+
+    private fun questionBlock(value: String): LinearLayout = vertical {
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        setBackgroundColor(Color.rgb(232, 240, 255))
+        addView(text(value, 23, bold = true))
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(match, wrap).apply { setMargins(0, dp(8), 0, dp(10)) }
+    }
+
+    private fun feedbackBlock(correct: Boolean, selectedAnswer: String, correctAnswer: String): LinearLayout = vertical {
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        setBackgroundColor(if (correct) Color.rgb(220, 252, 231) else Color.rgb(254, 226, 226))
+        addView(text(if (correct) "Верно" else "Неверно", 20, bold = true))
+        addView(text("Ваш ответ: $selectedAnswer", 15))
+        if (!correct) {
+            addView(text("Правильный ответ: $correctAnswer", 15, bold = true))
+        }
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(match, wrap).apply { setMargins(0, dp(10), 0, dp(8)) }
     }
 
     private fun input(hint: String, value: String, password: Boolean = false): EditText =
@@ -645,7 +739,11 @@ class MainActivity : Activity() {
             setText(value)
             textSize = 16f
             setSingleLine(false)
-            if (password) inputType = 0x00000081
+            inputType = if (password) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
         }
 
     private fun title(value: String) = text(value, 18, bold = true)
@@ -675,6 +773,25 @@ class MainActivity : Activity() {
         textSize = 12f
         setOnClickListener { action() }
         layoutParams = LinearLayout.LayoutParams(0, wrap, 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) }
+    }
+
+    private fun answerButton(label: String, state: AnswerState, action: () -> Unit) = Button(this).apply {
+        text = label
+        textSize = 14f
+        isAllCaps = false
+        setTextColor(Color.rgb(17, 24, 39))
+        setBackgroundColor(
+            when (state) {
+                AnswerState.Pending -> Color.rgb(245, 247, 251)
+                AnswerState.Correct -> Color.rgb(187, 247, 208)
+                AnswerState.Wrong -> Color.rgb(254, 202, 202)
+                AnswerState.Disabled -> Color.rgb(229, 231, 235)
+            }
+        )
+        isEnabled = true
+        isClickable = state == AnswerState.Pending
+        setOnClickListener { action() }
+        layoutParams = LinearLayout.LayoutParams(match, wrap).apply { setMargins(0, dp(5), 0, dp(5)) }
     }
 
     private fun progress(value: Double) = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
